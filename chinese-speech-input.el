@@ -24,7 +24,7 @@
 ;;
 ;;   1. 使用 Silero VAD 检测语音起止（chinese-speech-input-vad.el + vad-events.py）；
 ;;   2. 用 ffmpeg 录制一句话；
-;;   3. 交给阿里云 Qwen-ASR 或腾讯云一句话识别转写成中文
+;;   3. 交给阿里云 Qwen-ASR 转写成中文
 ;;      （chinese-speech-input-transcribe.el）；
 ;;   4. 插入文本，或用模糊匹配选中候选命令。
 ;;
@@ -84,6 +84,8 @@
   (chinese-speech-input-stop-recording)
   (remove-hook 'chinese-speech-input-vad-on-end-functions
                'chinese-speech-input-vad-stop-recording-once)
+  (remove-hook 'chinese-speech-input-vad-on-start-functions
+               'chinese-speech-input-vad-start-recording-once)
   (when (and chinese-speech-input-recording-filename
              (file-exists-p chinese-speech-input-recording-filename))
     (delete-file chinese-speech-input-recording-filename)))
@@ -98,7 +100,9 @@
    (lambda (filename)
      (unwind-protect
          (condition-case err
-             (let ((text (chinese-speech-input-transcribe-sync filename)))
+             (let ((text (progn
+                           (message "正在转写…")
+                           (chinese-speech-input-transcribe-sync filename))))
                (when (and text (not (string-empty-p text)))
                  (insert text)))
            (error (message "中文语音转写失败：%s" (error-message-string err))))

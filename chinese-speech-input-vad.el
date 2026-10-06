@@ -40,6 +40,14 @@
 (defvar chinese-speech-input-vad-debug nil
   "非 nil 时在语音开始/结束打印提示。")
 
+(defvar chinese-speech-input-vad-ready nil
+  "非 nil 表示 VAD 进程已加载模型并开始监听（收到 READY）。")
+
+(defvar chinese-speech-input-vad-pending-callback nil
+  "当前一轮录音的转写回调。")
+(defvar chinese-speech-input-vad-pending-filename nil
+  "当前一轮录音的指定文件名（可为 nil，自动生成）。")
+
 (defun chinese-speech-input-vad-toggle-debug ()
   "切换 `chinese-speech-input-vad-debug'。"
   (interactive)
@@ -50,6 +58,9 @@
 
 (defun chinese-speech-input-vad-events-filter (_proc string)
   (cond
+   ((string-match "^READY" string)
+    (setq chinese-speech-input-vad-ready t)
+    (message "VAD 已就绪，可以开始说话。"))
    ((string-match "^START" string)
     (when chinese-speech-input-vad-debug (message "语音开始"))
     (run-hooks 'chinese-speech-input-vad-on-start-functions))
@@ -62,6 +73,7 @@
   "如果尚未运行则启动 VAD 进程。"
   (interactive)
   (unless (process-live-p chinese-speech-input-vad-events-process)
+    (setq chinese-speech-input-vad-ready nil)
     (let ((process-environment
            (cons
             (format
@@ -87,13 +99,26 @@
                'chinese-speech-input-vad-stop-recording-once)
   (chinese-speech-input-stop-recording))
 
+(defun chinese-speech-input-vad-start-recording-once ()
+  "语音开始时启动录音（只执行一次）。"
+  (remove-hook 'chinese-speech-input-vad-on-start-functions
+               'chinese-speech-input-vad-start-recording-once)
+  (chinese-speech-input-start-recording
+   chinese-speech-input-vad-pending-callback
+   chinese-speech-input-vad-pending-filename))
+
 ;;;###autoload
 (defun chinese-speech-input-vad-record-one-turn (callback &optional filename)
-  "开始 VAD 并录制一句话，语音结束后用录音文件名调用 CALLBACK。"
+  "录制一句话：VAD 检测到语音开始后开始录音，语音结束后用文件名调用 CALLBACK。"
+  (setq chinese-speech-input-vad-pending-callback callback)
+  (setq chinese-speech-input-vad-pending-filename filename)
   (chinese-speech-input-vad-start)
+  (unless chinese-speech-input-vad-ready
+    (message "正在启动 VAD，首次约需几秒，请稍候…"))
+  (add-hook 'chinese-speech-input-vad-on-start-functions
+            'chinese-speech-input-vad-start-recording-once)
   (add-hook 'chinese-speech-input-vad-on-end-functions
-            'chinese-speech-input-vad-stop-recording-once)
-  (chinese-speech-input-start-recording callback filename))
+            'chinese-speech-input-vad-stop-recording-once))
 
 (provide 'chinese-speech-input-vad)
 ;;; chinese-speech-input-vad.el ends here

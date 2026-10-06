@@ -40,6 +40,7 @@ try:
                         channels=1,
                         callback=audio_callback,
                         blocksize=CHUNK_SIZE):
+        print("READY", flush=True)
         while True:
             pass
 except KeyboardInterrupt:
