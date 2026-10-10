@@ -136,7 +136,7 @@ https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/compl
          (user-msg `(("role" . "user") ("content" . ,user-content)))
          (system-msg (when (and context (consp context) (> (length context) 0))
                        `(("role" . "system")
-                         ("content" . ,(string-join (delq nil context) "，")))))
+                         ("content" . [ (("text" . ,(string-join (delq nil context) "，")))]))))
          (messages (apply #'vector (delq nil (list system-msg user-msg)))))
     (json-encode
      `(("model" . ,chinese-speech-input-aliyun-model)

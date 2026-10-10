@@ -86,6 +86,8 @@
                'chinese-speech-input-vad-stop-recording-once)
   (remove-hook 'chinese-speech-input-vad-on-start-functions
                'chinese-speech-input-vad-start-recording-once)
+  (remove-hook 'chinese-speech-input-vad-on-ready-functions
+               'chinese-speech-input-vad-start-recording-once)
   (when (and chinese-speech-input-recording-filename
              (file-exists-p chinese-speech-input-recording-filename))
     (delete-file chinese-speech-input-recording-filename)))
@@ -243,6 +245,28 @@ COLLECTION 可为字符串列表、(结果 . 候选) 列表或 (结果 候选1 �
                (funcall callback
                         (chinese-speech-input-match-in-list text collection)
                         text))
+           (error (message "中文语音转写失败：%s" (error-message-string err))))
+       (when (file-exists-p filename)
+         (delete-file filename))))))
+
+;;;###autoload
+(defun chinese-speech-input-from-list-with-rest (prompt collection callback)
+  "语音：把 COLLECTION 中的一项匹配到所说内容的开头，返回剩余部分。
+COLLECTION 可为字符串列表、(结果 . 候选) 列表或 (结果 候选1 候选2 ...) 列表。
+识别完成后用 (结果 剩余文本) 调用 CALLBACK。适合“命令 + 参数”型语音指令，
+例如说「百度今天天气怎么样」→ 匹配出结果“baidu”，剩余“今天天气怎么样”。"
+  (when prompt (message "%s" prompt))
+  (chinese-speech-input-vad-record-one-turn
+   (lambda (filename)
+     (unwind-protect
+         (condition-case err
+             (let* ((collection (chinese-speech-input--reshape-collection collection))
+                    (context (chinese-speech-input--collection-context collection))
+                    (text (chinese-speech-input-transcribe-sync filename context))
+                    (match (chinese-speech-input-match-first-part text collection)))
+               (funcall callback
+                        (car match)
+                        (string-trim (cdr match))))
            (error (message "中文语音转写失败：%s" (error-message-string err))))
        (when (file-exists-p filename)
          (delete-file filename))))))

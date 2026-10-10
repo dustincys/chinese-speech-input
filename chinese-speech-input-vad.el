@@ -37,6 +37,7 @@
 
 (defvar chinese-speech-input-vad-on-end-functions nil)
 (defvar chinese-speech-input-vad-on-start-functions nil)
+(defvar chinese-speech-input-vad-on-ready-functions nil)
 (defvar chinese-speech-input-vad-debug nil
   "非 nil 时在语音开始/结束打印提示。")
 
@@ -48,6 +49,9 @@
 (defvar chinese-speech-input-vad-pending-filename nil
   "当前一轮录音的指定文件名（可为 nil，自动生成）。")
 
+(defvar chinese-speech-input-vad-filter-buffer ""
+  "进程输出缓冲，用于拼接被切分的行。")
+
 (defun chinese-speech-input-vad-toggle-debug ()
   "切换 `chinese-speech-input-vad-debug'。"
   (interactive)
@@ -56,17 +60,31 @@
                "已开启 VAD 调试。"
              "已关闭 VAD 调试。")))
 
-(defun chinese-speech-input-vad-events-filter (_proc string)
+(defun chinese-speech-input-vad-handle-line (line)
+  "处理 VAD 进程输出的一整行 LINE。"
   (cond
-   ((string-match "^READY" string)
+   ((string-prefix-p "READY" line)
     (setq chinese-speech-input-vad-ready t)
-    (message "VAD 已就绪，可以开始说话。"))
-   ((string-match "^START" string)
+    (message "VAD 已就绪，可以开始说话。")
+    (run-hooks 'chinese-speech-input-vad-on-ready-functions))
+   ((string-prefix-p "START" line)
     (when chinese-speech-input-vad-debug (message "语音开始"))
     (run-hooks 'chinese-speech-input-vad-on-start-functions))
-   ((string-match "^END" string)
+   ((string-prefix-p "END" line)
     (when chinese-speech-input-vad-debug (message "语音结束"))
     (run-hooks 'chinese-speech-input-vad-on-end-functions))))
+
+(defun chinese-speech-input-vad-events-filter (_proc string)
+  "按行处理 VAD 进程输出（自动拼接被切分的行）。"
+  (setq chinese-speech-input-vad-filter-buffer
+        (concat chinese-speech-input-vad-filter-buffer string))
+  (while (string-match "\n" chinese-speech-input-vad-filter-buffer)
+    (let ((line (substring chinese-speech-input-vad-filter-buffer
+                           0 (match-beginning 0))))
+      (setq chinese-speech-input-vad-filter-buffer
+            (substring chinese-speech-input-vad-filter-buffer
+                       (match-end 0)))
+      (chinese-speech-input-vad-handle-line line))))
 
 ;;;###autoload
 (defun chinese-speech-input-vad-start ()
@@ -74,6 +92,7 @@
   (interactive)
   (unless (process-live-p chinese-speech-input-vad-events-process)
     (setq chinese-speech-input-vad-ready nil)
+    (setq chinese-speech-input-vad-filter-buffer "")
     (let ((process-environment
            (cons
             (format
@@ -100,8 +119,8 @@
   (chinese-speech-input-stop-recording))
 
 (defun chinese-speech-input-vad-start-recording-once ()
-  "语音开始时启动录音（只执行一次）。"
-  (remove-hook 'chinese-speech-input-vad-on-start-functions
+  "VAD 就绪后启动录音（只执行一次）。"
+  (remove-hook 'chinese-speech-input-vad-on-ready-functions
                'chinese-speech-input-vad-start-recording-once)
   (chinese-speech-input-start-recording
    chinese-speech-input-vad-pending-callback
@@ -109,16 +128,19 @@
 
 ;;;###autoload
 (defun chinese-speech-input-vad-record-one-turn (callback &optional filename)
-  "录制一句话：VAD 检测到语音开始后开始录音，语音结束后用文件名调用 CALLBACK。"
+  "录制一句话：VAD 就绪后开始录音，语音结束后用文件名调用 CALLBACK。"
   (setq chinese-speech-input-vad-pending-callback callback)
   (setq chinese-speech-input-vad-pending-filename filename)
   (chinese-speech-input-vad-start)
-  (unless chinese-speech-input-vad-ready
-    (message "正在启动 VAD，首次约需几秒，请稍候…"))
-  (add-hook 'chinese-speech-input-vad-on-start-functions
-            'chinese-speech-input-vad-start-recording-once)
   (add-hook 'chinese-speech-input-vad-on-end-functions
-            'chinese-speech-input-vad-stop-recording-once))
+            'chinese-speech-input-vad-stop-recording-once)
+  (if chinese-speech-input-vad-ready
+      ;; 已经就绪：立刻开始录音（用户直接说话即可，能录到完整一句话）
+      (chinese-speech-input-start-recording callback filename)
+    ;; 尚未就绪：等 READY 后再开始录音，避免把模型加载期录进去
+    (message "正在启动 VAD，首次约需几秒，请稍候…")
+    (add-hook 'chinese-speech-input-vad-on-ready-functions
+              'chinese-speech-input-vad-start-recording-once)))
 
 (provide 'chinese-speech-input-vad)
 ;;; chinese-speech-input-vad.el ends here
